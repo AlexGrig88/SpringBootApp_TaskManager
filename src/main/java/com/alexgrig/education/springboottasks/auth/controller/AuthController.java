@@ -7,7 +7,9 @@ import com.alexgrig.education.springboottasks.auth.entity.User;
 import com.alexgrig.education.springboottasks.auth.exception.RoleNotFoundException;
 import com.alexgrig.education.springboottasks.auth.exception.UserAlreadyActivatedException;
 import com.alexgrig.education.springboottasks.auth.exception.UserExistsException;
+import com.alexgrig.education.springboottasks.auth.service.EmailService;
 import com.alexgrig.education.springboottasks.auth.service.UserDetailsImpl;
+import com.alexgrig.education.springboottasks.auth.service.UserDetailsServiceImpl;
 import com.alexgrig.education.springboottasks.auth.service.UserService;
 import com.alexgrig.education.springboottasks.auth.utils.CookieUtils;
 import com.alexgrig.education.springboottasks.auth.utils.JwtUtils;
@@ -38,20 +40,26 @@ import static com.alexgrig.education.springboottasks.auth.service.UserService.DE
 public class AuthController {
 
     private UserService userService;
+    private EmailService emailService;
+
     private PasswordEncoder encoder; // кодировщик паролей (или любых данных), создает односторонний хеш
     private AuthenticationManager authenticationManager; // стандартный встроенный менеджер Spring, проверяет логин-пароль
     private JwtUtils jwtUtils; // класс-утилита для работы с jwt
     private CookieUtils cookieUtils; // класс-утилита для работы с куками
+    private UserDetailsServiceImpl userDetailsService; // для поиска пользователя и добавления его в Spring контейнер
 
     @Autowired
     public AuthController(UserService userService, PasswordEncoder encoder,
                           AuthenticationManager authenticationManager,
-                          JwtUtils jwtUtils, CookieUtils cookieUtils) {
+                          JwtUtils jwtUtils, CookieUtils cookieUtils, EmailService emailService,
+                          UserDetailsServiceImpl userDetailsService) {
         this.userService = userService;
         this.encoder = encoder;
         this.authenticationManager = authenticationManager;
         this.jwtUtils = jwtUtils;
         this.cookieUtils = cookieUtils;
+        this.emailService = emailService;
+        this.userDetailsService = userDetailsService;
 
     }
 
@@ -61,12 +69,13 @@ public class AuthController {
     }
 
     @PostMapping("/test-with-auth")
-    @PreAuthorize("USER")
+    @PreAuthorize("hasAuthority('ADMIN')")
     public String testWithAuth() {
         return "OK-with-auth";
     }
 
 
+    // этот метод всем будет доступен для вызова
     @PutMapping("/register")
     public ResponseEntity register(@Valid @RequestBody User user) {
 
@@ -88,13 +97,54 @@ public class AuthController {
         //зашифровываем пароль(генерим хэш пароля)
         user.setPassword(encoder.encode(user.getPassword()));
 
+        // сохранить в БД активность пользователя
         Activity activity = new Activity();
         activity.setUser(user);
         activity.setUuid(UUID.randomUUID().toString());
 
         userService.register(user, activity); //сохраняем пользователя в бд
 
+        // отправляем письмо о том, что нужно активировать аккаунт
+        emailService.sendActivationEmail(user.getEmail(), user.getUsername(), activity.getUuid());
+
         return ResponseEntity.ok().build(); // 200 Ok
+    }
+
+    // повторная отправка письма для активации аккаунта - это уже инициирует пользователь лично
+    @PostMapping("/resend-activate-email")
+    public ResponseEntity resendActivateEmail(@RequestBody String usernameOrEmail) {
+
+        // находим пользователя в БД (ищет как по email, так и по username)
+        UserDetailsImpl user = (UserDetailsImpl) userDetailsService.loadUserByUsername(usernameOrEmail); // смотрим, есть ли такой пользователь в базе (ищет сначала по username, затем по email)
+
+        // у каждого пользователя должна быть запись Activity (вся его активность) - если этого объекта нет - значит что-то пошло не так
+        Activity activity = userService.findActivityByUserId(user.getId())
+                .orElseThrow(() -> new UsernameNotFoundException("Activity Not Found with user: " + usernameOrEmail));
+
+        // если пользователь уже был ранее активирован (нет смысла еще раз делать запрос в БД)
+        if (activity.isActivated())
+            throw new UserAlreadyActivatedException("User already activated: " + usernameOrEmail);
+
+        // отправляем письмо активации (выполняется в параллельном потоке с помощью @Async, чтобы пользователь не ждал)
+        emailService.sendActivationEmail(user.getEmail(), user.getUsername(), activity.getUuid());
+
+        return ResponseEntity.ok().build(); // просто отправляем статус 200-ОК (без каких-либо данных)
+    }
+
+    // отправка письма для сброса пароля
+    @PostMapping("/send-reset-password-email")
+    public ResponseEntity sendEmailResetPassword(@RequestBody String email) {
+
+        UserDetailsImpl userDetails = (UserDetailsImpl) userDetailsService.loadUserByUsername(email); // смотрим, есть ли такой пользователь в БД - иначе выбросит ошибку
+
+        User user = userDetails.getUser(); // получаем текущего пользователя из контейнера UserDetails
+
+        if (userDetails != null) {
+            // отправляем письмо со ссылкой для сброса пароля (выполняется в параллельном потоке с помощью @Async, чтобы пользователь не ждал)
+            emailService.sendResetPasswordEmail(user.getEmail(), jwtUtils.createEmailResetToken(user));
+        }
+
+        return ResponseEntity.ok().build(); // во всех случаях просто возвращаем статус 200 - ОК
     }
 
 
@@ -136,6 +186,7 @@ public class AuthController {
 
     //выход из системы, зануляем наш кук с jwt
     @PostMapping("/logout")
+    @PreAuthorize("hasAuthority('USER')")
     public ResponseEntity logout() {
         HttpCookie cookie = cookieUtils.deleteJwtCookie();
 
@@ -152,6 +203,23 @@ public class AuthController {
 //        return null;
 //    }
 
+    // обновление пароля (когда клиент ввел новый пароль и отправил его на backend)
+    @PostMapping("/update-password")
+    @PreAuthorize("hasAuthority('USER')")
+    public ResponseEntity<Boolean> updatePassword(@RequestBody String password) { // password - новый пароль
+
+         /*
+            До этого шага должна была произойти автоматическая авторизация пользователя в AuthTokenFilter на основе кука jwt.
+            Без этой информации метод не выполнится, т.к. не сможем получить пользователя, для которого хотим выполнить операцию
+         */
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication(); // пытаемся получить объект аутентификации
+        UserDetailsImpl user = (UserDetailsImpl) authentication.getPrincipal(); // получаем пользователя из Spring контейнера
+
+        // кол-во обновленных записей (в нашем случае должно быть 1, т.к. обновляем пароль одного пользователя)
+        int updatedCount = userService.updatePassword(encoder.encode(password), user.getUsername());
+
+        return ResponseEntity.ok(updatedCount == 1); // 1 - значит запись обновилась успешно, 0 - что-то пошло не так
+    }
 
 
     // активация пользователя (чтобы мог авторизоваться и работать дальше с приложением)

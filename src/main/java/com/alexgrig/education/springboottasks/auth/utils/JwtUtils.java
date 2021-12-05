@@ -26,10 +26,26 @@ public class JwtUtils {
     private int accessTokenExpiration; // длительность токена для автоматического логина (все запросы будут автоматически проходить аутентификацию, если в них присутствует JWT)
     // название взяли по аналогии с протоколом OAuth2, но не путайте - это просто название нашего JWT, здесь мы не применяем OAuth2
 
+    @Value("${jwt.reset-pass-expiration}") // 300000 мс = 5 мин
+    private int resetPassTokenExpiration; // длительность токена для сброса пароля (чем короче, тем лучше)
+
+    // генерация JWT для доступа к данным
+    public String createAccessToken(User user) { // в user будут заполнены те поля, которые нужны аутентификации пользователя и работы в системе
+        return createToken(user, accessTokenExpiration);
+    }
+
+
+    // генерация JWT для сброса пароля
+    public String createEmailResetToken(User user) { // в user будут заполнены только те поля, которые нужны для сброса пароля
+        return createToken(user, resetPassTokenExpiration);
+    }
+
     // генерация JWT по данным пользователя
-    public String createAccessToken(User user) {
+    public String createToken(User user, int duration) {
 
         Date currentDate = new Date(); // для отсчета времени от текущего момента - для задания expiration
+        // пароль зануляем до формирования jwt
+        user.setPassword(null); // пароль нужен только один раз для аутентификации - поэтому можем его занулить, чтобы больше нигде не "засветился"
 
         Map<String, Object> claims = new HashMap<>();
         claims.put(CLAIM_USER_KEY, user);
@@ -41,7 +57,7 @@ public class JwtUtils {
                 //.setSubject((user.getId().toString())) // subject - это одно из стандартных полей jwt (сохраняем неизменяемое id пользователя)
                 .setClaims(claims)
                 .setIssuedAt(currentDate) // время отсчета - текущий момент
-                .setExpiration(new Date(currentDate.getTime() + accessTokenExpiration)) // срок действия access_token
+                .setExpiration(new Date(currentDate.getTime() + duration)) // срок действия access_token
 
                 .signWith(SignatureAlgorithm.HS512, jwtSecret) // используем алгоритм кодирования HS512, хешируем все данные секретным ключом-строкой
                 .compact(); // кодируем в формат Base64

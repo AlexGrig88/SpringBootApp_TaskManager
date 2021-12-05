@@ -49,6 +49,11 @@ public class UserService {
         return activityRepository.findByUuid(uuid);
     }
 
+    public Optional<Activity> findActivityByUserId(long id){
+        return activityRepository.findByUserId(id);
+    }
+
+
     // true сконвертируется в 1, т.к. указали @Type(type = "org.hibernate.type.NumericBooleanType") в классе Activity
     public int activate(String uuid){
         return activityRepository.changeActivated(uuid, true);
@@ -57,6 +62,11 @@ public class UserService {
     // false сконвертируется в 0, т.к. указали @Type(type = "org.hibernate.type.NumericBooleanType") в классе Activity
     public int deactivate(String uuid){
         return activityRepository.changeActivated(uuid, false);
+    }
+
+    //обновление пароля
+    public int updatePassword(String pass, String username) {
+       return userRepository.updatePassword(pass, username);
     }
 
 }

@@ -11,6 +11,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import javax.servlet.FilterChain;
@@ -23,6 +24,9 @@ import java.util.List;
 
 @Component
 public class AuthTokenFilter extends OncePerRequestFilter {
+
+    // стандартный префикс, который принято добавлять перед значением JWT в заголовке Authorization
+    public static final String BEARER_PREFIX = "Bearer ";
 
     private JwtUtils jwtUtils;
     private CookieUtils cookieUtils;
@@ -66,7 +70,13 @@ public class AuthTokenFilter extends OncePerRequestFilter {
                 //SecurityContextHolder.getContext().getAuthentication() == null  // если пользователь еще не прошел аутентификацию (а значит объект Authentication == null в контейнере Spring, вдруг ранее еще где-то уже произвели аутентификацию)
         ) {
             // сюда попадем, если запрос хочет получить данные, которые требуют аутентификации, ролей и пр.
-            String jwt = cookieUtils.getCookieAccessToken(request); // для всех остальных запросов - получаем jwt из кука
+            String jwt = null;
+
+            if (request.getRequestURI().contains("update-password")) { // если это запрос на обновление пароля
+                jwt = getJwtFromHeader(request);// получаем токен из заголовка Authorization
+            } else { // для всех остальных запросов
+                jwt = cookieUtils.getCookieAccessToken(request); // получаем jwt из кука access_token
+            }
 
             if (jwt != null) { // если токен найден
 
@@ -111,5 +121,25 @@ public class AuthTokenFilter extends OncePerRequestFilter {
          */
 
         filterChain.doFilter(request, response); // продолжить выполнение запроса (запрос отправится дальше в контроллер)
+    }
+
+    /*
+    Метод для получения jwt из заголовка Authorization (не из кука) - в нашем проекте такой способ передачи jwt используется только в 1 месте: при запросе на обновление пароля пользователем.
+    Чтобы обновить пароль - пользователь в письме переходит по URL, в конце которого указан jwt.
+    Этот jwt считывается на клиенте и добавляется в заголовок Authorization.
+
+    Не рекомендуется на клиенте создавать кук и добавлять туда jwt - это небезопасно, т.к. такой client-side-cookie может быть считан.
+
+    Поэтому jwt добавляется в заголовок запроса Authorization - 1 раз и для 1 запроса.
+    Во всех остальных случаях - jwt создается только сервером (флаг httpOnly) и не может быть считан с помощью JavaScript на клиенте (для безопасности)
+    */
+    private String getJwtFromHeader(HttpServletRequest request) {
+        String headerAuth = request.getHeader("Authorization");
+
+        if (StringUtils.hasText(headerAuth) && headerAuth.startsWith(BEARER_PREFIX)) {
+            return headerAuth.substring(7); // вырезаем префикс, чтобы получить чистое значение jwt
+        }
+
+        return null; // jwt не найден
     }
 }
