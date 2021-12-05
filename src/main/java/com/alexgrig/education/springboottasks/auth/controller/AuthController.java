@@ -1,18 +1,23 @@
 package com.alexgrig.education.springboottasks.auth.controller;
 
+import com.alexgrig.education.springboottasks.auth.customobjects.JsonException;
 import com.alexgrig.education.springboottasks.auth.entity.Activity;
 import com.alexgrig.education.springboottasks.auth.entity.Role;
 import com.alexgrig.education.springboottasks.auth.entity.User;
 import com.alexgrig.education.springboottasks.auth.exception.RoleNotFoundException;
 import com.alexgrig.education.springboottasks.auth.exception.UserAlreadyActivatedException;
 import com.alexgrig.education.springboottasks.auth.exception.UserExistsException;
-import com.alexgrig.education.springboottasks.auth.customobjects.JsonException;
 import com.alexgrig.education.springboottasks.auth.service.UserDetailsImpl;
 import com.alexgrig.education.springboottasks.auth.service.UserService;
+import com.alexgrig.education.springboottasks.auth.utils.CookieUtils;
+import com.alexgrig.education.springboottasks.auth.utils.JwtUtils;
 import lombok.extern.java.Log;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpCookie;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -35,12 +40,30 @@ public class AuthController {
     private UserService userService;
     private PasswordEncoder encoder; // кодировщик паролей (или любых данных), создает односторонний хеш
     private AuthenticationManager authenticationManager; // стандартный встроенный менеджер Spring, проверяет логин-пароль
+    private JwtUtils jwtUtils; // класс-утилита для работы с jwt
+    private CookieUtils cookieUtils; // класс-утилита для работы с куками
 
     @Autowired
-    public AuthController(UserService userService, PasswordEncoder encoder, AuthenticationManager authenticationManager) {
+    public AuthController(UserService userService, PasswordEncoder encoder,
+                          AuthenticationManager authenticationManager,
+                          JwtUtils jwtUtils, CookieUtils cookieUtils) {
         this.userService = userService;
         this.encoder = encoder;
         this.authenticationManager = authenticationManager;
+        this.jwtUtils = jwtUtils;
+        this.cookieUtils = cookieUtils;
+
+    }
+
+    @PostMapping("/test-no-auth")
+    public String testNoAuth() {
+        return "OK-no-auth";
+    }
+
+    @PostMapping("/test-with-auth")
+    @PreAuthorize("USER")
+    public String testWithAuth() {
+        return "OK-with-auth";
     }
 
 
@@ -96,8 +119,39 @@ public class AuthController {
         }
 
         // если мы дошли до этой строки, значит пользователь успешно залогинился
-        return ResponseEntity.ok().body(userDetails.getUser());
+        // после каждого успешного входа генерируется новый jwt, чтобы следующие запросы на backend авторизовывать автоматически
+        String jwt = jwtUtils.createAccessToken(userDetails.getUser());
+
+        userDetails.getUser().setPassword(null); // пароль нужен только один раз для аутентификации - поэтому можем его занулить, чтобы больше нигде не "засветился"
+
+        // создаем кук со значением jwt (браузер будет отправлять его автоматически на backend при каждом запросе)
+        // обратите внимание на флаги безопасности в методе создания кука
+        HttpCookie cookie = cookieUtils.createJwtCookie(jwt); // server-side cookie
+        HttpHeaders responseHeaders = new HttpHeaders();
+        responseHeaders.add(HttpHeaders.SET_COOKIE, cookie.toString()); // добавляем cookie в заголовок (header)
+
+        // если мы дошли до этой строки, значит пользователь успешно залогинился
+        return ResponseEntity.ok().headers(responseHeaders).body(userDetails.getUser());
     }
+
+    //выход из системы, зануляем наш кук с jwt
+    @PostMapping("/logout")
+    public ResponseEntity logout() {
+        HttpCookie cookie = cookieUtils.deleteJwtCookie();
+
+        HttpHeaders responseHeaders = new HttpHeaders();
+        responseHeaders.add(HttpHeaders.SET_COOKIE, cookie.toString());
+
+        return ResponseEntity.ok().headers(responseHeaders).build();
+    }
+
+
+//    Автологин происходит в фильтре
+//    @PostMapping("/auto")
+//    public ResponseEntity<User> autoLogin() {
+//        return null;
+//    }
+
 
 
     // активация пользователя (чтобы мог авторизоваться и работать дальше с приложением)
