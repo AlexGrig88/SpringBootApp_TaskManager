@@ -90,7 +90,7 @@ public class AuthController {
         */
 
         // присваиваем дефолтную роль новому пользователю
-        Role userRole = userService.findByName(DEFAULT_ROLE)
+        Role userRole = userService.findRoleByName(DEFAULT_ROLE)
                 .orElseThrow(() -> new RoleNotFoundException("Default Role USER not found.")); // если в БД нет такой роли - выбрасываем исключение
         user.getRoles().add(userRole); // добавить роль USER для создаваемого пользователя
 

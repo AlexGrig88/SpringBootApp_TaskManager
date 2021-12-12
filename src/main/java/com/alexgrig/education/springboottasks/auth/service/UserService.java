@@ -41,7 +41,7 @@ public class UserService {
     }
 
     // получаем из БД объект роли
-    public Optional<Role> findByName(String role) {
+    public Optional<Role> findRoleByName(String role) {
         return roleRepository.findByName(role);
     }
 

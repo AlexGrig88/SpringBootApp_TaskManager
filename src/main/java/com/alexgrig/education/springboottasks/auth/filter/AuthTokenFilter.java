@@ -6,6 +6,7 @@ import com.alexgrig.education.springboottasks.auth.service.UserDetailsImpl;
 import com.alexgrig.education.springboottasks.auth.utils.CookieUtils;
 import com.alexgrig.education.springboottasks.auth.utils.JwtUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -65,9 +66,19 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         boolean isRequestToPublicAPI = permitURL.stream()
                 .anyMatch(s -> request.getRequestURI().toLowerCase().contains(s));
 
-        if (!isRequestToPublicAPI
-                //&&
-                //SecurityContextHolder.getContext().getAuthentication() == null  // если пользователь еще не прошел аутентификацию (а значит объект Authentication == null в контейнере Spring, вдруг ранее еще где-то уже произвели аутентификацию)
+        if (!isRequestToPublicAPI &&
+                !request.getMethod().equals(HttpMethod.OPTIONS.toString()) //если тип метода не OPTIONS
+                   /* для проверки Cross-Origin Resource Sharing (CORS) браузер обычно выполняет 2 запроса:
+                            - 1й с типом OPTIONS, который проверяет разрешен ли вообще запрос из источника (CORS)
+                            - 2й - уже наш запрос от клиента на изменение состояния сервера (POST и пр.)
+
+                         Условие if как раз добавлено, чтобы не выполнять лишние действия и проверки, когда приходит OPTIONS запрос
+
+                        Подробнее:
+                        https://stackoverflow.com/questions/36353532/angular2-options-method-sent-when-asking-for-http-get
+                        https://medium.com/@theflyingmantis/cors-csrf-91ba8487c5fd
+
+                         */
         ) {
             // сюда попадем, если запрос хочет получить данные, которые требуют аутентификации, ролей и пр.
             String jwt = null;

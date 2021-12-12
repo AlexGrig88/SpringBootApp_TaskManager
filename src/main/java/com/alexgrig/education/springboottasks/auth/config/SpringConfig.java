@@ -52,6 +52,8 @@ public class SpringConfig extends WebSecurityConfigurerAdapter {
         return new BCryptPasswordEncoder();
     }
 
+
+
     // используем стандартный готовый authenticationManager из Spring контейнера (используется для проверки логина-пароля)
     // эти методы доступны в документации Spring Security - оттуда их можно копировать, чтобы не писать вручную
     @Bean
