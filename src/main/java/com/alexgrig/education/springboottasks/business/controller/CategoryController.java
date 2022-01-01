@@ -94,8 +94,8 @@ public class CategoryController {
     }
 
 
-    @DeleteMapping("/delete")
-    public ResponseEntity delete(@RequestBody Long id) {
+    @DeleteMapping("/delete/{id}")
+    public ResponseEntity delete(@PathVariable("id") Long id) {
 
         MyLogger.debugMethodName("CategoryController: delete(id)");
 

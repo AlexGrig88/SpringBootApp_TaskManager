@@ -184,6 +184,17 @@ public class AuthController {
         return ResponseEntity.ok().headers(responseHeaders).body(userDetails.getUser());
     }
 
+    //если пользователь уже авторизовался, то при каждом запрсе на закрытую страницу, мы будем отдавать соответствующего юзера.
+    //перед тем как запрос попадёт в этот метод он пройдёт через AuthTokenFilter, где по куку jwt найдёт соответствующего юзера
+    @PostMapping("/auto")
+    public ResponseEntity<User> autoLogin() {
+
+        //получаем данные пользователя из Spring контейнера
+        UserDetailsImpl userDetails = (UserDetailsImpl) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+
+        return ResponseEntity.ok().body(userDetails.getUser());
+    }
+
     //выход из системы, зануляем наш кук с jwt
     @PostMapping("/logout")
     @PreAuthorize("hasAuthority('USER')")

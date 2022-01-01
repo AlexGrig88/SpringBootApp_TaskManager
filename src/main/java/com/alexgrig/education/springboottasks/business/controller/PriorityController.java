@@ -111,8 +111,8 @@ public class PriorityController {
     }
 
 
-    @DeleteMapping("/delete")
-    public ResponseEntity delete(@RequestBody Long id) {
+    @DeleteMapping("/delete/{id}")
+    public ResponseEntity delete(@PathVariable("id") Long id) {
 
         MyLogger.debugMethodName("PriorityController: delete()");
 

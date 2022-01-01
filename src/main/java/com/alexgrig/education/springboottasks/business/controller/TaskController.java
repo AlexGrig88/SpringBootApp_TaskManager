@@ -90,8 +90,8 @@ public class TaskController {
     }
 
 
-    @DeleteMapping("/delete")
-    public ResponseEntity delete(@RequestBody Long id) {
+    @DeleteMapping("/delete/{id}")
+    public ResponseEntity delete(@PathVariable("id") Long id) {
 
         MyLogger.debugMethodName("task: delete() ");
 
