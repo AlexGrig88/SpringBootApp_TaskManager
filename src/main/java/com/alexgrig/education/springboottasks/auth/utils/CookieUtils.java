@@ -20,7 +20,7 @@ public class CookieUtils {
     @Value("${cookie.jwt.max-age}")
     private int cookieAccessTokenDuration;
 
-    @Value("${server.domain}")
+    @Value("${cookie.domain}")
     private String cookieAccessTokenDomain;
 
     // создает server-side cookie со значением jwt.
